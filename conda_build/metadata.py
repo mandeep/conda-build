@@ -1055,7 +1055,9 @@ class MetaData(object):
             d['preferred_env'] = preferred_env
 
         # conda 4.4+ optional dependencies
-        constrains = self.get_value('requirements/run_constrained')
+        constrains = ensure_list(self.get_value('requirements/run_constrained'))
+        # filter None values
+        constrains = [v for v in constrains if v]
         if constrains:
             d['constrains'] = constrains
 
