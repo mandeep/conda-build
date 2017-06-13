@@ -19,6 +19,7 @@ import pprint
 import re
 import sys
 import tarfile
+import tempfile
 
 from .conda_interface import PY3
 
@@ -93,7 +94,7 @@ def has_nonpy_entry_points(t, unix_to_win=True, show=False, quiet=False):
     return matched
 
 
-def tar_update(source, dest, file_map, verbose=True, quiet=False):
+def tar_update(source, destination, file_map, verbose=True, quiet=False):
     """
     update a tarball, i.e. repack it and insert/update or remove some
     archives according file_map, which is a dictionary mapping archive names
@@ -116,52 +117,82 @@ def tar_update(source, dest, file_map, verbose=True, quiet=False):
     """
 
     # s -> t
-    if isinstance(source, tarfile.TarFile):
-        s = source
-    else:
+    if not isinstance(source, tarfile.TarFile):
         if not source.endswith(('.tar', '.tar.bz2')):
             raise TypeError("path must be a .tar or .tar.bz2 path")
-        s = tarfile.open(source)
-    if isinstance(dest, tarfile.TarFile):
-        t = dest
-    else:
-        t = tarfile.open(dest, 'w:bz2')
+
+        # source = tarfile.open(source)
+
+    if not isinstance(destination, tarfile.TarFile):
+        target = tarfile.open(destination, 'w:bz2')
+
+    source_dir = tempfile.mkdtemp()
+    source.extractall(source_dir)
+
+    temp_files = []
 
     try:
-        for m in s.getmembers():
-            p = m.path
-            if p in file_map:
-                if file_map[p] is None:
-                    if verbose:
-                        print('removing %r' % p)
-                else:
-                    if verbose:
-                        print('updating %r with %r' % (p, file_map[p]))
-                    if isinstance(file_map[p], tarfile.TarInfo):
-                        t.addfile(file_map[p], s.extractfile(file_map[p]))
-                    elif isinstance(file_map[p], tuple):
-                        t.addfile(*file_map[p])
+        for dirpath, dirnames, filenames in os.walk(source_dir):
+            for filename in filenames:
+                file_path = os.path.join(dirpath, filename)
+                # file_subpath is a file path with the temporary dir path removed
+                # so that this path matches the one found in file_map
+                file_subpath = file_path.replace(source_dir + '/', '')
+                if file_subpath in file_map:
+                    if file_map[file_subpath] is None:
+                        if verbose:
+                            print('removing %r' % file_subpath)
                     else:
-                        t.add(file_map[p], p)
-                continue
-            if not quiet:
-                print("keeping %r" % p)
-            t.addfile(m, s.extractfile(p))
+                        if verbose:
+                            print('updating %r with %r' % (file_subpath, file_map[file_subpath]))
+                        if isinstance(file_map[file_subpath], tarfile.TarInfo):
+                            temp_files.append((file_map[file_subpath], open(file_path, 'rb')))
+                        elif isinstance(file_map[file_subpath], tuple):
+                            temp_files.append((file_map[file_subpath]))
+                        else:
+                            temp_files.append([file_map[file_subpath], file_subpath])
+                    continue
+                if not quiet:
+                    print("keeping %r" % file_subpath)
+                temp_files.append((filename, open(file_path, 'rb')))
 
-        s_names_set = set(m.path for m in s.getmembers())
+        for file_object in temp_files:
+            target.addfile(*file_object)
+
+
+        # for member in source.getmembers():
+        #     if member.path in file_map:
+        #         if file_map[member.path] is None:
+        #             if verbose:
+        #                 print('removing %r' % member.path)
+        #         else:
+        #             if verbose:
+        #                 print('updating %r with %r' % (member.path, file_map[member.path]))
+        #             if isinstance(file_map[member.path], tarfile.TarInfo):
+        #                 target.addfile(file_map[file_path], source.extractfile(file_map[file_path]))
+        #             elif isinstance(file_map[member.path], tuple):
+        #                 target.addfile(*file_map[member.path])
+        #             else:
+        #                 target.add(file_map[member.path], member.path)
+        #         if not quiet:
+        #             print("keeping %r" % member.path)
+        # target.addfile(member, source.extractfile(member.path))
+
+        s_names_set = set(m.path for m in source.getmembers())
         # This sorted is important!
         for p in sorted(file_map):
+
             if p not in s_names_set:
                 if verbose:
                     print('inserting %r with %r' % (p, file_map[p]))
                 if isinstance(file_map[p], tarfile.TarInfo):
-                    t.addfile(file_map[p], s.extractfile(file_map[p]))
+                    target.addfile(file_map[p], source.extractfile(file_map[p]))
                 elif isinstance(file_map[p], tuple):
-                    t.addfile(*file_map[p])
+                    target.addfile(*file_map[p])
                 else:
-                    t.add(file_map[p], p)
+                    target.add(file_map[p], p)
     finally:
-        t.close()
+        target.close()
 
 
 def _check_paths_version(paths):
