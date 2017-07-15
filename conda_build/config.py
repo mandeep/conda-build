@@ -111,15 +111,6 @@ DEFAULTS = [Setting('activate', True),
             Setting('identity', None),
             Setting('config_file', None),
             Setting('repository', 'pypitest'),
-
-            Setting('ignore_recipe_verify_scripts',
-                  cc_conda_build.get('ignore_recipe_verify_scripts', [])),
-            Setting('ignore_package_verify_scripts',
-                    cc_conda_build.get('ignore_package_verify_scripts', [])),
-            Setting('run_recipe_verify_scripts',
-                    cc_conda_build.get('run_package_verify_scripts', [])),
-            Setting('run_package_verify_scripts',
-                    cc_conda_build.get('run_package_verify_scripts', [])),
             ]
 
 

@@ -751,12 +751,7 @@ def bundle_conda(output, metadata, env, **kw):
         tarcheck.check_all(tmp_path, metadata.config)
         if not getattr(metadata.config, "noverify", False):
             verifier = Verify()
-            ignore_scripts = metadata.config.ignore_package_verify_scripts if \
-                             metadata.config.ignore_package_verify_scripts else None
-            run_scripts = metadata.config.run_package_verify_scripts if \
-                          metadata.config.run_package_verify_scripts else None
-            verifier.verify_package(ignore_scripts=ignore_scripts, run_scripts=run_scripts,
-                                    path_to_package=tmp_path)
+            verifier.verify_package(path_to_package=tmp_path)
         try:
             crossed_subdir = metadata.config.target_subdir
         except AttributeError:
