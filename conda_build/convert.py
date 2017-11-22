@@ -11,6 +11,8 @@ Tools for converting conda packages
 import glob
 import json
 import hashlib
+import ntpath
+import posixpath
 import os
 import re
 import shutil
@@ -224,13 +226,14 @@ def update_lib_path(path, target_platform, temp_dir=None):
     """
     if target_platform == 'win':
         python_version = retrieve_python_version(path)
-        renamed_lib_path = re.sub('\Alib', 'Lib', path).replace(python_version, '')
+        renamed_lib_path = ntpath.normpath(re.sub('\Alib', 'Lib', path).replace(python_version, ''))
 
     elif target_platform == 'unix':
         python_version = retrieve_python_version(temp_dir)
-        renamed_lib_path = re.sub('\ALib', os.path.join('lib', python_version), path)
+        renamed_lib_path = posixpath.normpath(
+            re.sub('\ALib', os.path.join('lib', python_version), path))
 
-    return os.path.normpath(renamed_lib_path)
+    return renamed_lib_path
 
 
 def update_lib_contents(lib_directory, temp_dir, target_platform, file_path):
@@ -253,7 +256,8 @@ def update_lib_contents(lib_directory, temp_dir, target_platform, file_path):
         try:
             for lib_file in glob.iglob('{}/python*/**' .format(lib_directory)):
                 if 'site-packages' in lib_file:
-                    new_site_packages_path = os.path.join(temp_dir, 'lib/site-packages')
+                    new_site_packages_path = ntpath.join(
+                        temp_dir, posixpath.join('lib', 'site-packages'))
                     os.renames(lib_file, new_site_packages_path)
                 else:
                     if retrieve_python_version(lib_file) is not None:
@@ -267,16 +271,16 @@ def update_lib_contents(lib_directory, temp_dir, target_platform, file_path):
         except IndexError:
             pass
 
-        os.rename(os.path.join(temp_dir, 'lib'), os.path.join(temp_dir, 'Lib'))
+        os.rename(posixpath.join(temp_dir, 'lib'), ntpath.join(temp_dir, 'Lib'))
 
     elif target_platform == 'unix':
         try:
             for lib_file in glob.iglob('{}/**' .format(lib_directory)):
                 python_version = retrieve_python_version(file_path)
-                new_lib_file = re.sub('Lib', os.path.join('lib', python_version), lib_file)
+                new_lib_file = re.sub('Lib', posixpath.join('lib', python_version), lib_file)
                 os.renames(lib_file, new_lib_file)
 
-            os.rename(os.path.join(temp_dir, 'Lib'), os.path.join(temp_dir, 'lib'))
+            os.rename(ntpath.join(temp_dir, 'Lib'), posixpath.join(temp_dir, 'lib'))
 
         except OSError:
             pass
@@ -321,7 +325,7 @@ def add_new_windows_path(executable_directory, executable):
                     "path_type": "hardlink",
                     "sha256": hashlib.sha256(script_file_contents).hexdigest(),
                     "size_in_bytes": os.path.getsize(
-                        os.path.join(executable_directory, executable))
+                        ntpath.join(executable_directory, executable))
                     }
     return new_path
 
@@ -366,7 +370,7 @@ def update_paths_file(temp_dir, target_platform):
                     paths['paths'].remove(path)
 
         with open(paths_file, 'w') as file:
-            json.dump(paths, file)
+            json.dump(paths, file, indent=2)
 
 
 def retrieve_executable_name(executable):
@@ -505,7 +509,7 @@ def update_prefix_file(temp_dir, prefixes):
             prefix_file.write(prefix)
 
 
-def update_files_file(temp_dir, verbose):
+def update_files_file(temp_dir, platform, verbose):
     """Update the source package's 'files' file.
 
     The file path to each file that will be in the target archive is
@@ -514,6 +518,8 @@ def update_files_file(temp_dir, verbose):
     Positional arguments:
     temp_dir (str) -- the file path to the temporary directory containing the source
         package's extracted contents
+    platform (str) -- the platform to convert to: 'win-64', 'win-32', 'linux-64',
+        'linux-32', or 'osx-64'
     verbose (bool) -- show output of items that are updated
     """
     files_file = os.path.join(temp_dir, 'info/files')
@@ -522,10 +528,13 @@ def update_files_file(temp_dir, verbose):
         file_paths = []
         for dirpath, dirnames, filenames in os.walk(temp_dir):
             for filename in filenames:
-                package_file_path = os.path.join(
-                    dirpath, filename).replace(temp_dir, '').lstrip(os.sep)
+                if platform.startswith(('linux', 'osx')):
+                    package_file_path = posixpath.join(
+                        dirpath, filename).replace(temp_dir, '').lstrip(os.sep)
+                else:
+                    package_file_path = ntpath.join(
+                        dirpath, filename).replace(temp_dir, '').lstrip(os.sep)
                 if not package_file_path.startswith('info'):
-                    # files.write(package_file_path + '\n')
                     file_paths.append(package_file_path)
 
                     if verbose:
@@ -545,7 +554,10 @@ def create_target_archive(file_path, temp_dir, platform, output_dir):
     platform (str) -- the platform to convert to: 'win-64', 'win-32', 'linux-64',
         'linux-32', or 'osx-64'
     """
-    output_directory = os.path.join(output_dir, platform)
+    if platform.startswith(('linux', 'osx')):
+        output_directory = posixpath.join(output_dir, platform)
+    else:
+        output_directory = ntpath.join(output_dir, platform)
 
     if not os.path.isdir(output_directory):
         os.makedirs(output_directory)
@@ -555,9 +567,14 @@ def create_target_archive(file_path, temp_dir, platform, output_dir):
     with tarfile.open(destination, 'w:bz2') as target:
         for dirpath, dirnames, filenames in os.walk(temp_dir):
             for filename in filenames:
-                destination_file_path = os.path.join(
-                    dirpath, filename).replace(temp_dir, '').lstrip(os.sep)
-                target.add(os.path.join(dirpath, filename), arcname=destination_file_path)
+                if platform.startswith(('linux', 'osix')):
+                    destination_file_path = posixpath.join(
+                        dirpath, filename).replace(temp_dir, '').lstrip(os.sep)
+                    target.add(posixpath.join(dirpath, filename), arcname=destination_file_path)
+                else:
+                    destination_file_path = ntpath.join(
+                        dirpath, filename).replace(temp_dir, '').lstrip(os.sep)
+                    target.add(ntpath.join(dirpath, filename), arcname=destination_file_path)
 
 
 def convert_between_unix_platforms(file_path, output_dir, platform, dependencies, verbose):
@@ -638,7 +655,7 @@ def convert_from_unix_to_windows(file_path, output_dir, platform, dependencies, 
     update_index_file(temp_dir, platform, dependencies, verbose)
     update_prefix_file(temp_dir, prefixes)
     update_paths_file(temp_dir, target_platform='win')
-    update_files_file(temp_dir, verbose)
+    update_files_file(temp_dir, platform, verbose)
 
     create_target_archive(file_path, temp_dir, platform, output_dir)
 
@@ -661,7 +678,7 @@ def convert_from_windows_to_unix(file_path, output_dir, platform, dependencies, 
     prefixes = set()
 
     for entry in os.listdir(temp_dir):
-        directory = os.path.join(temp_dir, entry)
+        directory = ntpath.join(temp_dir, entry)
         if os.path.isdir(directory) and 'Lib' in directory:
             update_lib_contents(directory, temp_dir, 'unix', file_path)
 
@@ -674,13 +691,13 @@ def convert_from_windows_to_unix(file_path, output_dir, platform, dependencies, 
                     prefixes.add('/opt/anaconda1anaconda2anaconda3 text bin/{}\n'
                         .format(retrieve_executable_name(script)))
 
-            new_bin_path = os.path.join(temp_dir, 'bin')
+            new_bin_path = posixpath.join(temp_dir, 'bin')
             os.renames(directory, new_bin_path)
 
     update_index_file(temp_dir, platform, dependencies, verbose)
     update_prefix_file(temp_dir, prefixes)
     update_paths_file(temp_dir, target_platform='unix')
-    update_files_file(temp_dir, verbose)
+    update_files_file(temp_dir, platform, verbose)
 
     create_target_archive(file_path, temp_dir, platform, output_dir)
 
